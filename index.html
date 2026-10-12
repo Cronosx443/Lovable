@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Cronômetro para Eventos</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Estilos do Display */
+    .timer-display {
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+      letter-spacing: -2px;
+      line-height: 1;
+    }
+
+    /* Modo Painel de Controle */
+    .control-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+      padding: 32px;
+      background: #1e293b;
+      border-radius: 16px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    }
+    .control-panel .timer-display {
+      font-size: 5rem;
+      color: #38bdf8;
+    }
+    .btn-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: center;
+    }
+    button {
+      background: #334155;
+      color: #fff;
+      border: none;
+      padding: 12px 20px;
+      font-size: 1rem;
+      font-weight: 600;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    button:hover { background: #475569; }
+    button.btn-primary { background: #16a34a; }
+    button.btn-primary:hover { background: #15803d; }
+    button.btn-warn { background: #ea580c; }
+    button.btn-warn:hover { background: #c2410c; }
+    button.btn-danger { background: #dc2626; }
+    button.btn-danger:hover { background: #b91c1c; }
+    button.btn-project { background: #2563eb; }
+    button.btn-project:hover { background: #1d4ed8; }
+
+    /* Modo Projeção */
+    body.projector-mode {
+      background: #000;
+    }
+    body.projector-mode .control-panel { display: none; }
+    body.projector-mode .projector-display {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100vw;
+      height: 100vh;
+    }
+    body.projector-mode .timer-display {
+      font-size: 26vw;
+      color: #fff;
+    }
+    body.projector-mode.expired .timer-display {
+      color: #ef4444;
+      animation: blink 1s infinite alternate;
+    }
+    @keyframes blink {
+      from { opacity: 1; }
+      to { opacity: 0.3; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Interface do Painel de Controle -->
+  <div class="control-panel" id="panel">
+    <div class="timer-display" id="control-timer">10:00</div>
+
+    <!-- Controles Principais -->
+    <div class="btn-group">
+      <button class="btn-primary" id="btn-start">Iniciar</button>
+      <button class="btn-warn" id="btn-pause">Pausar</button>
+      <button class="btn-danger" id="btn-reset">Resetar</button>
+    </div>
+
+    <!-- Ajuste Rápido de Tempo -->
+    <div class="btn-group">
+      <button id="btn-sub-5">-5 min</button>
+      <button id="btn-sub-1">-1 min</button>
+      <button id="btn-add-1">+1 min</button>
+      <button id="btn-add-5">+5 min</button>
+    </div>
+
+    <!-- Abrir Janela do Projetor -->
+    <div class="btn-group">
+      <button class="btn-project" id="btn-open-projector">Abrir Tela de Projeção</button>
+    </div>
+  </div>
+
+  <!-- Interface da Janela de Projeção -->
+  <div class="projector-display" id="projector-box" style="display: none;">
+    <div class="timer-display" id="projector-timer">10:00</div>
+  </div>
+
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const isProjector = urlParams.get('mode') === 'projector';
+    const channel = new BroadcastChannel('event_timer_sync');
+
+    let defaultSeconds = 600; // 10 minutos padrão
+    let currentSeconds = defaultSeconds;
+    let isRunning = false;
+    let intervalId = null;
+
+    function formatTime(totalSeconds) {
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+
+    if (isProjector) {
+      // --- LÓGICA DA JANELA DO PROJETOR ---
+      document.body.classList.add('projector-mode');
+      document.getElementById('projector-box').style.display = 'flex';
+      const display = document.getElementById('projector-timer');
+
+      channel.onmessage = (event) => {
+        const { type, seconds } = event.data;
+        if (type === 'TICK' || type === 'SYNC') {
+          display.textContent = formatTime(seconds);
+          if (seconds === 0) {
+            document.body.classList.add('expired');
+          } else {
+            document.body.classList.remove('expired');
+          }
+        }
+      };
+
+      // Solicita o estado atual ao abrir
+      channel.postMessage({ type: 'REQUEST_SYNC' });
+
+    } else {
+      // --- LÓGICA DO PAINEL DO OPERADOR ---
+      const display = document.getElementById('control-timer');
+
+      function updateDisplay() {
+        display.textContent = formatTime(currentSeconds);
+        channel.postMessage({ type: 'TICK', seconds: currentSeconds });
+      }
+
+      function tick() {
+        if (currentSeconds > 0) {
+          currentSeconds--;
+          updateDisplay();
+        } else {
+          clearInterval(intervalId);
+          isRunning = false;
+        }
+      }
+
+      document.getElementById('btn-start').addEventListener('click', () => {
+        if (!isRunning && currentSeconds > 0) {
+          isRunning = true;
+          intervalId = setInterval(tick, 1000);
+        }
+      });
+
+      document.getElementById('btn-pause').addEventListener('click', () => {
+        if (isRunning) {
+          isRunning = false;
+          clearInterval(intervalId);
+        }
+      });
+
+      document.getElementById('btn-reset').addEventListener('click', () => {
+        isRunning = false;
+        clearInterval(intervalId);
+        currentSeconds = defaultSeconds;
+        updateDisplay();
+      });
+
+      function adjustTime(secondsToAdd) {
+        currentSeconds = Math.max(0, currentSeconds + secondsToAdd);
+        updateDisplay();
+      }
+
+      document.getElementById('btn-add-1').addEventListener('click', () => adjustTime(60));
+      document.getElementById('btn-add-5').addEventListener('click', () => adjustTime(300));
+      document.getElementById('btn-sub-1').addEventListener('click', () => adjustTime(-60));
+      document.getElementById('btn-sub-5').addEventListener('click', () => adjustTime(-300));
+
+      // Responde à solicitação de sync da tela de projeção
+      channel.onmessage = (event) => {
+        if (event.data.type === 'REQUEST_SYNC') {
+          channel.postMessage({ type: 'SYNC', seconds: currentSeconds });
+        }
+      };
+
+      // Abre a segunda tela
+      document.getElementById('btn-open-projector').addEventListener('click', () => {
+        window.open(window.location.pathname + '?mode=projector', '_blank', 'width=1280,height=720');
+      });
+
+      updateDisplay();
+    }
+  </script>
+</body>
+</html>
