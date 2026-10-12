@@ -24,6 +24,12 @@
       line-height: 1;
     }
 
+    /* Cores de alerta */
+    .timer-normal { color: #38bdf8; }
+    body.projector-mode .timer-normal { color: #fff; }
+    .timer-warning { color: #f97316 !important; } /* Laranja para 3 minutos */
+    .timer-danger { color: #ef4444 !important; }  /* Vermelho para 1 minuto */
+
     /* Painel de Rede / Acesso Remoto */
     .network-info {
       background: #0f172a;
@@ -55,7 +61,6 @@
     }
     .control-panel .timer-display {
       font-size: 5rem;
-      color: #38bdf8;
     }
     .btn-group {
       display: flex;
@@ -98,10 +103,8 @@
     }
     body.projector-mode .timer-display {
       font-size: 26vw;
-      color: #fff;
     }
     body.projector-mode.expired .timer-display {
-      color: #ef4444;
       animation: blink 1s infinite alternate;
     }
     @keyframes blink {
@@ -114,7 +117,7 @@
 
   <!-- Interface do Painel de Controle -->
   <div class="control-panel" id="panel">
-    <div class="timer-display" id="control-timer">10:00</div>
+    <div class="timer-display timer-normal" id="control-timer">10:00</div>
 
     <!-- Acesso de Rede / IP para abrir em outro dispositivo como Windows -->
     <div class="network-info" id="network-info">
@@ -142,7 +145,7 @@
     </div>
 
     <!-- Informações de IP / Acesso Windows -->
-    <div class="network-info" id="network-info">
+    <div class="network-info">
       Endereço para acessar no Windows: <strong id="net-address">Carregando...</strong><br>
       <span style="font-size: 0.8rem;">Certifique-se de que este computador e o Windows estão na mesma rede Wi-Fi / Cabo.</span>
     </div>
@@ -150,7 +153,7 @@
 
   <!-- Interface da Janela de Projeção -->
   <div class="projector-display" id="projector-box" style="display: none;">
-    <div class="timer-display" id="projector-timer">10:00</div>
+    <div class="timer-display timer-normal" id="projector-timer">10:00</div>
   </div>
 
   <script>
@@ -169,13 +172,32 @@
       return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
     }
 
+    function applyTimerStyle(element, seconds) {
+      element.classList.remove('timer-normal', 'timer-warning', 'timer-danger');
+      if (seconds <= 60) {
+        element.classList.add('timer-danger');
+      } else if (seconds <= 180) {
+        element.classList.add('timer-warning');
+      } else {
+        element.classList.add('timer-normal');
+      }
+    }
+
     // Exibir o endereço de rede atual para facilitar acesso por outros computadores (ex: Windows)
     const ipEl = document.getElementById('ip-address-text');
     if (ipEl) {
-      const currentHost = window.location.host; // inclui IP/porta ou localhost
+      const currentHost = window.location.host; 
       const currentProtocol = window.location.protocol;
       const currentPath = window.location.pathname;
       ipEl.textContent = `${currentProtocol}//${currentHost}${currentPath}`;
+    }
+
+    const netAddressEl = document.getElementById('net-address');
+    if (netAddressEl) {
+      const host = window.location.host || window.location.hostname;
+      const protocol = window.location.protocol;
+      const pathname = window.location.pathname;
+      netAddressEl.textContent = `${protocol}//${host}${pathname}`;
     }
 
     if (isProjector) {
@@ -187,7 +209,9 @@
       channel.onmessage = (event) => {
         const { type, seconds } = event.data;
         if (type === 'TICK' || type === 'SYNC') {
+          currentSeconds = seconds;
           display.textContent = formatTime(seconds);
+          applyTimerStyle(display, seconds);
           if (seconds === 0) {
             document.body.classList.add('expired');
           } else {
@@ -205,6 +229,7 @@
 
       function updateDisplay() {
         display.textContent = formatTime(currentSeconds);
+        applyTimerStyle(display, currentSeconds);
         channel.postMessage({ type: 'TICK', seconds: currentSeconds });
       }
 
@@ -221,6 +246,7 @@
       document.getElementById('btn-start').addEventListener('click', () => {
         if (!isRunning && currentSeconds > 0) {
           isRunning = true;
+          clearInterval(intervalId);
           intervalId = setInterval(tick, 1000);
         }
       });
@@ -260,12 +286,6 @@
       document.getElementById('btn-open-projector').addEventListener('click', () => {
         window.open(window.location.pathname + '?mode=projector', '_blank', 'width=1280,height=720');
       });
-
-      // Exibir endereço de rede / IP para acesso no Windows
-      const host = window.location.host || window.location.hostname;
-      const protocol = window.location.protocol;
-      const pathname = window.location.pathname;
-      document.getElementById('net-address').textContent = `${protocol}//${host}${pathname}`;
 
       updateDisplay();
     }
